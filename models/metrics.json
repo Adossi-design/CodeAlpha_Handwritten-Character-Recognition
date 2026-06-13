@@ -1,0 +1,7 @@
+{
+  "train_accuracy": 0.9822143912315369,
+  "val_accuracy": 0.9892666935920715,
+  "test_accuracy": 0.9890666604042053,
+  "test_loss": 0.03811073303222656,
+  "parameters": 443002
+}
