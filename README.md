@@ -171,8 +171,10 @@ The prediction appears right away and shows:
 1. The predicted letter, its confidence score, and the next closest guesses.
 2. The 28x28 image the model actually sees.
 3. A bar chart of the model's confidence across all 26 letters.
-4. Model facts: test accuracy, parameter count, dataset size, and number of
-   classes.
+
+The **How it works** and **About** buttons in the header open short explanations
+of the pipeline and the model's facts: test accuracy, parameter count, dataset
+size, and number of classes.
 
 ---
 

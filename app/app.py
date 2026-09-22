@@ -102,13 +102,13 @@ st.markdown(
         font-family: 'Caveat', cursive; font-size: 5rem; color: #D9D8D1; line-height: 1;
     }}
 
-    .hs-footer {{ color: {MUTED}; font-size: .85rem; text-align: center; margin-top: 2rem; }}
 
     @media (max-width: 640px) {{
         .block-container {{ padding-top: 3.5rem; }}
         h1.hs-brand {{ font-size: 2.6rem !important; }}
         .hs-letter {{ font-size: 4.2rem; width: 6.5rem; height: 6.5rem; }}
         .hs-conf {{ font-size: 1.6rem; }}
+        .st-key-hs_actions {{ justify-content: flex-start !important; margin-bottom: 1rem; }}
     }}
     </style>
     """,
@@ -362,11 +362,52 @@ def render_distribution(probs):
 # ---------------------------------------------------------------------------
 # Page
 # ---------------------------------------------------------------------------
-st.markdown(
-    "<h1 class='hs-brand'>HandScript <span>AI</span></h1>"
-    "<p class='hs-tagline'>Write a capital letter and a neural network reads it back.</p>",
-    unsafe_allow_html=True,
-)
+@st.dialog("About the model", icon=":material/info:", width="medium")
+def show_about():
+    metrics = load_metrics()
+    stats = [
+        ("Test accuracy", f"{metrics.get('test_accuracy', 0.9891) * 100:.2f}%"),
+        ("Parameters", f"{metrics.get('parameters', 443002):,}"),
+        ("Training images", f"{DATASET_SIZE:,}"),
+        ("Classes", "26 (A-Z)"),
+    ]
+    for row in (stats[:2], stats[2:]):
+        for col, (label, value) in zip(st.columns(2), row):
+            with col:
+                with st.container(border=True):
+                    st.metric(label, value)
+    st.caption(
+        "A convolutional neural network trained on the Kaggle A-Z Handwritten "
+        "dataset. Built by Adossi Fred William for the CodeAlpha Machine "
+        "Learning Internship."
+    )
+
+
+@st.dialog("How it works", icon=":material/lightbulb:", width="medium")
+def show_how_it_works():
+    st.markdown(
+        """
+1. **Clean up.** The image is converted to grayscale and inverted so the letter is white on black, like the training data.
+2. **Frame.** The letter is cropped, scaled to fit a 20 x 20 box, and centered in a 28 x 28 frame.
+3. **Classify.** A 5-layer convolutional neural network, trained on the Kaggle A-Z Handwritten dataset, scores all 26 letters.
+4. **Report.** The highest score is the prediction; the others show what the model was also considering.
+        """
+    )
+
+
+brand, actions = st.columns([3, 2], vertical_alignment="center")
+with brand:
+    st.markdown(
+        "<h1 class='hs-brand'>HandScript <span>AI</span></h1>"
+        "<p class='hs-tagline'>Write a capital letter and a neural network reads it back.</p>",
+        unsafe_allow_html=True,
+    )
+with actions:
+    with st.container(horizontal=True, horizontal_alignment="right", key="hs_actions"):
+        if st.button("How it works", icon=":material/lightbulb:"):
+            show_how_it_works()
+        if st.button("About", icon=":material/info:"):
+            show_about()
 
 if not os.path.exists(MODEL_PATH):
     st.error(
@@ -441,34 +482,3 @@ if probs is not None:
     st.markdown("<p class='hs-label' style='margin-top:1.5rem;'>Confidence for every letter</p>", unsafe_allow_html=True)
     with st.container(border=True):
         render_distribution(probs)
-
-# ---------------------------------------------------------------------------
-# About the model
-# ---------------------------------------------------------------------------
-metrics = load_metrics()
-st.markdown("<p class='hs-label' style='margin-top:1.5rem;'>About the model</p>", unsafe_allow_html=True)
-stats = [
-    ("Test accuracy", f"{metrics.get('test_accuracy', 0.9891) * 100:.2f}%"),
-    ("Parameters", f"{metrics.get('parameters', 443002):,}"),
-    ("Training images", f"{DATASET_SIZE:,}"),
-    ("Classes", "26 (A-Z)"),
-]
-for col, (label, value) in zip(st.columns(len(stats)), stats):
-    with col:
-        with st.container(border=True):
-            st.metric(label, value)
-
-with st.expander("How it works"):
-    st.markdown(
-        """
-1. **Clean up.** The image is converted to grayscale and inverted so the letter is white on black, like the training data.
-2. **Frame.** The letter is cropped, scaled to fit a 20 x 20 box, and centered in a 28 x 28 frame.
-3. **Classify.** A 5-layer convolutional neural network, trained on the Kaggle A-Z Handwritten dataset, scores all 26 letters.
-4. **Report.** The highest score is the prediction; the others show what the model was also considering.
-        """
-    )
-
-st.markdown(
-    "<p class='hs-footer'>Built by Adossi Fred William for the CodeAlpha Machine Learning Internship</p>",
-    unsafe_allow_html=True,
-)
