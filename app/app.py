@@ -387,10 +387,12 @@ def show_about():
 def show_how_it_works():
     st.markdown(
         """
-1. **Clean up.** The image is converted to grayscale and inverted so the letter is white on black, like the training data.
-2. **Frame.** The letter is cropped, scaled to fit a 20 x 20 box, and centered in a 28 x 28 frame.
-3. **Classify.** A 5-layer convolutional neural network, trained on the Kaggle A-Z Handwritten dataset, scores all 26 letters.
-4. **Report.** The highest score is the prediction; the others show what the model was also considering.
+1. **You give it a letter.** Draw one on the pad, upload a photo, or pick one of the samples.
+2. **The app tidies it up.** It removes the color, trims away the empty space, and shrinks your letter down to a tiny 28 x 28 pixel square. That's the same size and style as the letters the model learned from.
+3. **The model takes a look.** It has studied more than 370,000 handwritten letters, so it has a good idea of what each one usually looks like. It compares your letter against all 26 and decides how likely each one is.
+4. **You see the answer.** The letter it's most sure about is shown in big type, together with how confident it is and the other letters it thought about.
+
+**Tip:** for the best results, write a single capital letter, make it big, and keep it in the middle.
         """
     )
 
