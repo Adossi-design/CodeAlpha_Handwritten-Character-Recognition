@@ -33,15 +33,22 @@ NUM_CLASSES = 26
 # Headline test accuracy achieved during training (see notebook / models/metrics.json)
 TEST_ACCURACY = 0.9891
 
-# Theme colours
-DARK_BG = "#0F0F1A"
-PANEL_BG = "#1A1A2E"
-ACCENT = "#00E5FF"
-GREEN = "#2ECC71"
-ROSE = "#FF4D6D"
+# ---------------------------------------------------------------------------
+# Light, modern colour palette
+# ---------------------------------------------------------------------------
+PAGE_BG = "#F7F8FC"   # page background
+CARD_BG = "#FFFFFF"   # cards / panels
+BORDER = "#E4E7F2"    # subtle borders
+INK = "#1F2335"       # primary text (dark)
+MUTED = "#5A6079"     # secondary text
+PRIMARY = "#6C5CE7"   # violet (primary accent)
+TEAL = "#00B894"      # teal/green accent
+GREEN = "#16A34A"     # success
+PINK = "#FF6B9D"      # warm accent
+CHART_BG = "#F7F8FC"  # chart plot area
 
 # ---------------------------------------------------------------------------
-# Page configuration & global dark styling
+# Page configuration & global light styling
 # ---------------------------------------------------------------------------
 st.set_page_config(
     page_title="HandScript AI",
@@ -53,31 +60,82 @@ st.set_page_config(
 st.markdown(
     f"""
     <style>
-    .stApp {{ background-color: {DARK_BG}; color: #FFFFFF; }}
-    section[data-testid="stSidebar"] {{ background-color: {PANEL_BG}; }}
-    .metric-card {{
-        background: {PANEL_BG};
-        border: 1px solid #2A2A40;
-        border-radius: 14px;
-        padding: 18px;
-        text-align: center;
+    /* Page + base text */
+    .stApp {{
+        background: linear-gradient(180deg, #FFFFFF 0%, {PAGE_BG} 100%);
+        color: {INK};
     }}
-    .metric-card h2 {{ color: {ACCENT}; margin: 0; font-size: 1.9rem; }}
-    .metric-card p  {{ color: #AAB; margin: 4px 0 0 0; font-size: 0.85rem; }}
-    .pred-badge {{
-        background: {GREEN};
-        color: #06210F;
-        border-radius: 18px;
+    .stApp, .stApp p, .stApp label, .stApp span, .stApp li,
+    .stMarkdown, .stMarkdown p {{ color: {INK}; }}
+
+    /* Sidebar */
+    section[data-testid="stSidebar"] {{
+        background: {CARD_BG};
+        border-right: 1px solid {BORDER};
+    }}
+    section[data-testid="stSidebar"] * {{ color: {INK}; }}
+
+    /* Headings */
+    h1, h2, h3, h4 {{ color: {INK}; }}
+
+    /* Metric cards */
+    .metric-card {{
+        background: {CARD_BG};
+        border: 1px solid {BORDER};
+        border-radius: 16px;
+        padding: 20px 16px;
         text-align: center;
-        padding: 10px 0;
+        box-shadow: 0 6px 18px rgba(108, 92, 231, 0.08);
+    }}
+    .metric-card h2 {{
+        margin: 0;
+        font-size: 1.9rem;
+        background: linear-gradient(135deg, {PRIMARY} 0%, {TEAL} 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+    }}
+    .metric-card p {{ color: {MUTED}; margin: 6px 0 0 0; font-size: 0.85rem; }}
+
+    /* Prediction badge */
+    .pred-badge {{
+        background: linear-gradient(135deg, {PRIMARY} 0%, {TEAL} 100%);
+        color: #FFFFFF;
+        border-radius: 20px;
+        text-align: center;
+        padding: 14px 0;
         font-size: 6rem;
         font-weight: 800;
         line-height: 1.1;
+        box-shadow: 0 10px 24px rgba(108, 92, 231, 0.30);
     }}
+
+    /* Section headers */
     .section-head {{
-        border-left: 4px solid {ACCENT};
-        padding-left: 10px;
-        margin: 8px 0 4px 0;
+        border-left: 5px solid {PRIMARY};
+        padding-left: 12px;
+        margin: 10px 0 6px 0;
+        color: {INK};
+    }}
+
+    /* Buttons */
+    div.stButton > button {{
+        background: linear-gradient(135deg, {PRIMARY} 0%, {PINK} 100%);
+        color: #FFFFFF;
+        border: none;
+        border-radius: 12px;
+        font-weight: 700;
+        padding: 10px 0;
+    }}
+    div.stButton > button:hover {{
+        filter: brightness(1.05);
+        color: #FFFFFF;
+    }}
+
+    /* File uploader + inputs on white */
+    section[data-testid="stFileUploaderDropzone"] {{
+        background: {PAGE_BG};
+        border: 1px dashed {PRIMARY};
     }}
     </style>
     """,
@@ -101,19 +159,44 @@ def load_recognition_model():
 def preprocess_image(pil_image):
     """Convert an arbitrary PIL image into the model's input tensor.
 
-    Steps: grayscale -> resize to 28x28 -> normalise to [0, 1] ->
-    reshape to (1, 28, 28, 1). The grayscale 28x28 array is also returned
-    for display. Auto-inverts so the character is light-on-dark (matching the
-    training data) when a light-background photo is supplied.
+    The training letters are framed MNIST-style: the glyph sits in roughly a
+    20x20 box centered inside the 28x28 frame, with a margin around it. To make
+    uploads match that layout, we: convert to grayscale, put the strokes in
+    white on black, crop to the letter, scale its longest side to 20px (keeping
+    the aspect ratio), and center it in a 28x28 frame. Returns the input tensor
+    of shape (1, 28, 28, 1) and the 28x28 array for display.
     """
     gray = pil_image.convert("L")
-    resized = gray.resize((28, 28), Image.LANCZOS)
-    arr = np.array(resized, dtype="float32")
+    arr = np.array(gray, dtype="float32")
 
     # Training data is white strokes on a black background. If the uploaded
     # image is dark strokes on a light background, invert it.
     if arr.mean() > 127:
         arr = 255.0 - arr
+
+    # Find the letter and crop to its bounding box, then re-frame it like the
+    # training data (centered, ~20px tall/wide with a margin).
+    threshold = arr.max() * 0.25 if arr.max() > 0 else 0
+    coords = np.argwhere(arr > threshold)
+    if coords.size:
+        (y0, x0), (y1, x1) = coords.min(0), coords.max(0) + 1
+        crop = arr[y0:y1, x0:x1]
+        h, w = crop.shape
+        scale = 20.0 / max(h, w)
+        nh, nw = max(1, int(round(h * scale))), max(1, int(round(w * scale)))
+        glyph = np.array(
+            Image.fromarray(crop.astype("uint8")).resize((nw, nh), Image.LANCZOS),
+            dtype="float32",
+        )
+        canvas = np.zeros((28, 28), dtype="float32")
+        oy, ox = (28 - nh) // 2, (28 - nw) // 2
+        canvas[oy:oy + nh, ox:ox + nw] = glyph
+        arr = canvas
+    else:
+        arr = np.array(
+            Image.fromarray(arr.astype("uint8")).resize((28, 28), Image.LANCZOS),
+            dtype="float32",
+        )
 
     norm = arr / 255.0
     tensor = norm.reshape(1, 28, 28, 1)
@@ -147,8 +230,8 @@ def load_sample_for_letter(letter):
 # Sidebar: input controls
 # ---------------------------------------------------------------------------
 with st.sidebar:
-    st.markdown(f"<h1 style='color:{ACCENT};'>🖋️ HandScript AI</h1>", unsafe_allow_html=True)
-    st.caption("Handwritten Character Recognition - A-Z")
+    st.markdown(f"<h1 style='color:{PRIMARY};margin-bottom:0;'>🖋️ HandScript AI</h1>", unsafe_allow_html=True)
+    st.markdown(f"<p style='color:{MUTED};margin-top:4px;'>Handwritten Character Recognition (A-Z)</p>", unsafe_allow_html=True)
     st.divider()
 
     mode = st.radio(
@@ -179,10 +262,14 @@ with st.sidebar:
 # ---------------------------------------------------------------------------
 # Header
 # ---------------------------------------------------------------------------
-st.markdown(f"<h1 style='color:#FFFFFF;'>🖋️ HandScript AI</h1>", unsafe_allow_html=True)
 st.markdown(
-    "<p style='color:#AAB;font-size:1.05rem;'>Deep-learning recognition of handwritten "
-    "capital letters (A-Z), powered by a convolutional neural network.</p>",
+    f"<h1 style='margin-bottom:0;'>🖋️ <span style='color:{PRIMARY};'>HandScript</span> "
+    f"<span style='color:{TEAL};'>AI</span></h1>",
+    unsafe_allow_html=True,
+)
+st.markdown(
+    f"<p style='color:{MUTED};font-size:1.05rem;margin-top:4px;'>Deep-learning recognition of "
+    "handwritten capital letters (A-Z), powered by a convolutional neural network.</p>",
     unsafe_allow_html=True,
 )
 
@@ -195,6 +282,17 @@ if not os.path.exists(MODEL_PATH):
     st.stop()
 
 model = load_recognition_model()
+
+
+def styled_axes(fig, ax):
+    """Apply the light chart theme to a matplotlib figure/axes."""
+    fig.patch.set_facecolor(CARD_BG)
+    ax.set_facecolor(CHART_BG)
+    for spine in ["top", "right"]:
+        ax.spines[spine].set_visible(False)
+    for spine in ["left", "bottom"]:
+        ax.spines[spine].set_color(BORDER)
+    ax.tick_params(colors=INK)
 
 
 def render_results(pil_image):
@@ -224,10 +322,11 @@ def render_results(pil_image):
     with c3:
         st.markdown("**Top 3 guesses**")
         for rank, i in enumerate(order[:3]):
-            colour = GREEN if rank == 0 else "#FFFFFF"
+            colour = GREEN if rank == 0 else INK
+            weight = "800" if rank == 0 else "600"
             st.markdown(
-                f"<span style='color:{colour};font-size:1.15rem;'>"
-                f"{rank + 1}. <b>{LETTERS[int(i)]}</b> &nbsp;{probs[int(i)] * 100:.2f}%</span>",
+                f"<span style='color:{colour};font-size:1.15rem;font-weight:{weight};'>"
+                f"{rank + 1}. {LETTERS[int(i)]} &nbsp;{probs[int(i)] * 100:.2f}%</span>",
                 unsafe_allow_html=True,
             )
 
@@ -237,14 +336,14 @@ def render_results(pil_image):
     st.markdown("<h3 class='section-head'>Preprocessed Input</h3>", unsafe_allow_html=True)
     p1, p2 = st.columns(2)
     with p1:
-        st.markdown("**Grayscale - resized to 28x28**")
+        st.markdown("**Grayscale, resized to 28x28**")
         st.image(gray28.astype("uint8"), width=220, clamp=True)
     with p2:
         st.markdown("**Raw pixel grid (heatmap)**")
         import matplotlib.pyplot as plt
         fig, ax = plt.subplots(figsize=(3.2, 3.2))
-        fig.patch.set_facecolor(DARK_BG)
-        ax.imshow(gray28, cmap="magma")
+        fig.patch.set_facecolor(CARD_BG)
+        ax.imshow(gray28, cmap="viridis")
         ax.axis("off")
         st.pyplot(fig, use_container_width=False)
         plt.close(fig)
@@ -255,18 +354,12 @@ def render_results(pil_image):
     st.markdown("<h3 class='section-head'>Confidence Across All 26 Letters</h3>", unsafe_allow_html=True)
     import matplotlib.pyplot as plt
     fig, ax = plt.subplots(figsize=(11, 5))
-    fig.patch.set_facecolor(DARK_BG)
-    ax.set_facecolor(PANEL_BG)
-    colours = [GREEN if i == top_idx else ACCENT for i in range(NUM_CLASSES)]
+    styled_axes(fig, ax)
+    colours = [PRIMARY if i == top_idx else TEAL for i in range(NUM_CLASSES)]
     ax.barh(LETTERS, probs * 100, color=colours)
     ax.invert_yaxis()
-    ax.set_xlabel("Confidence (%)", color="#FFFFFF")
-    ax.tick_params(colors="#FFFFFF")
-    for spine in ["top", "right"]:
-        ax.spines[spine].set_visible(False)
-    for spine in ["left", "bottom"]:
-        ax.spines[spine].set_color("#3A3A5A")
-    ax.set_title(f"Predicted: {pred_letter}", color="#FFFFFF", fontweight="bold")
+    ax.set_xlabel("Confidence (%)", color=INK)
+    ax.set_title(f"Predicted: {pred_letter}", color=INK, fontweight="bold")
     st.pyplot(fig, use_container_width=True)
     plt.close(fig)
 
