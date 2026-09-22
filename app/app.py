@@ -3,7 +3,8 @@ HandScript AI: Handwritten Character Recognition
 ==================================================
 
 A Streamlit web app that recognises handwritten English capital letters (A-Z)
-using a trained convolutional neural network.
+using a trained convolutional neural network. Draw a letter, upload a photo of
+one, or try a sample, and the model predicts it instantly.
 
 Run from the project root:
 
@@ -12,130 +13,102 @@ Run from the project root:
 Author: Adossi Fred William | CodeAlpha Machine Learning Internship
 """
 
+import base64
+import io
+import json
 import os
 import string
 
+import altair as alt
 import numpy as np
 import pandas as pd
 import streamlit as st
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 
 # ---------------------------------------------------------------------------
 # Paths & constants
 # ---------------------------------------------------------------------------
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODEL_PATH = os.path.join(ROOT_DIR, "models", "best_model.keras")
+METRICS_PATH = os.path.join(ROOT_DIR, "models", "metrics.json")
 SAMPLE_DIR = os.path.join(ROOT_DIR, "sample_images")
 
-LETTERS = list(string.ascii_uppercase)          # ['A', 'B', ..., 'Z']
+LETTERS = list(string.ascii_uppercase)
 DATASET_SIZE = 372_450
-NUM_CLASSES = 26
-# Headline test accuracy achieved during training (see notebook / models/metrics.json)
-TEST_ACCURACY = 0.9891
+LOW_CONFIDENCE = 0.60
+
+INK = "#4338CA"      # primary accent (matches .streamlit/config.toml)
+INK_SOFT = "#C7C9F5"  # non-winning bars
+TEXT = "#1C1B22"
+MUTED = "#6B6A75"
+
+INPUT_MODES = {
+    "draw": ":material/draw: Draw",
+    "upload": ":material/upload: Upload",
+    "sample": ":material/grid_view: Samples",
+}
 
 # ---------------------------------------------------------------------------
-# Light, modern colour palette
-# ---------------------------------------------------------------------------
-PAGE_BG = "#F7F8FC"   # page background
-CARD_BG = "#FFFFFF"   # cards / panels
-BORDER = "#E4E7F2"    # subtle borders
-INK = "#1F2335"       # primary text (dark)
-MUTED = "#5A6079"     # secondary text
-PRIMARY = "#6C5CE7"   # violet (primary accent)
-TEAL = "#00B894"      # teal/green accent
-GREEN = "#16A34A"     # success
-PINK = "#FF6B9D"      # warm accent
-CHART_BG = "#F7F8FC"  # chart plot area
-
-# ---------------------------------------------------------------------------
-# Page configuration & global light styling
+# Page setup
 # ---------------------------------------------------------------------------
 st.set_page_config(
     page_title="HandScript AI",
-    page_icon="🖋️",
+    page_icon=":material/stylus_note:",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
 st.markdown(
     f"""
     <style>
-    /* Page + base text */
-    .stApp {{
-        background: linear-gradient(180deg, #FFFFFF 0%, {PAGE_BG} 100%);
-        color: {INK};
-    }}
-    .stApp, .stApp p, .stApp label, .stApp span, .stApp li,
-    .stMarkdown, .stMarkdown p {{ color: {INK}; }}
+    @import url('https://fonts.googleapis.com/css2?family=Caveat:wght@700&family=Inter:wght@400;600;800&display=swap');
 
-    /* Sidebar */
-    section[data-testid="stSidebar"] {{
-        background: {CARD_BG};
-        border-right: 1px solid {BORDER};
-    }}
-    section[data-testid="stSidebar"] * {{ color: {INK}; }}
+    .block-container {{ max-width: 1120px; padding-top: 2.2rem; padding-bottom: 3rem; }}
 
-    /* Headings */
-    h1, h2, h3, h4 {{ color: {INK}; }}
-
-    /* Metric cards */
-    .metric-card {{
-        background: {CARD_BG};
-        border: 1px solid {BORDER};
-        border-radius: 16px;
-        padding: 20px 16px;
-        text-align: center;
-        box-shadow: 0 6px 18px rgba(108, 92, 231, 0.08);
+    h1.hs-brand {{
+        font-family: 'Caveat', 'Segoe Print', cursive !important;
+        font-size: 3.2rem !important; font-weight: 700 !important;
+        line-height: 1 !important; color: {TEXT}; margin: 0; padding: 0 !important;
     }}
-    .metric-card h2 {{
-        margin: 0;
-        font-size: 1.9rem;
-        background: linear-gradient(135deg, {PRIMARY} 0%, {TEAL} 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
-    }}
-    .metric-card p {{ color: {MUTED}; margin: 6px 0 0 0; font-size: 0.85rem; }}
+    .hs-brand span {{ color: {INK}; }}
+    .hs-tagline {{ color: {MUTED}; font-size: 1rem; margin: .6rem 0 1.4rem 0; }}
 
-    /* Prediction badge */
-    .pred-badge {{
-        background: linear-gradient(135deg, {PRIMARY} 0%, {TEAL} 100%);
-        color: #FFFFFF;
-        border-radius: 20px;
-        text-align: center;
-        padding: 14px 0;
-        font-size: 6rem;
-        font-weight: 800;
-        line-height: 1.1;
-        box-shadow: 0 10px 24px rgba(108, 92, 231, 0.30);
+    .hs-label {{
+        font-size: .75rem; font-weight: 600; letter-spacing: .08em;
+        text-transform: uppercase; color: {MUTED}; margin: 0 0 .5rem 0;
     }}
 
-    /* Section headers */
-    .section-head {{
-        border-left: 5px solid {PRIMARY};
-        padding-left: 12px;
-        margin: 10px 0 6px 0;
-        color: {INK};
+    .hs-result {{ display: flex; align-items: center; gap: 1.25rem; flex-wrap: wrap; }}
+    .hs-letter {{
+        font-family: 'Inter', system-ui, sans-serif;
+        font-size: 5.5rem; font-weight: 800; line-height: 1;
+        color: #FFFFFF; background: {INK};
+        width: 8.5rem; height: 8.5rem; border-radius: 1.25rem;
+        display: flex; align-items: center; justify-content: center;
+        flex-shrink: 0;
+    }}
+    .hs-conf {{ font-size: 2rem; font-weight: 800; color: {TEXT}; line-height: 1.1; }}
+    .hs-conf-note {{ color: {MUTED}; font-size: .9rem; }}
+
+    .hs-alt {{ display: flex; gap: .5rem; flex-wrap: wrap; margin-top: .25rem; }}
+    .hs-chip {{
+        border: 1px solid #E3E2DC; border-radius: 999px; padding: .2rem .7rem;
+        font-size: .9rem; color: {TEXT}; background: #FFFFFF;
+    }}
+    .hs-chip b {{ color: {INK}; }}
+
+    .hs-empty {{ text-align: center; color: {MUTED}; padding: 3.5rem 1rem; }}
+    .hs-empty .hs-ghost {{
+        font-family: 'Caveat', cursive; font-size: 5rem; color: #D9D8D1; line-height: 1;
     }}
 
-    /* Buttons */
-    div.stButton > button {{
-        background: linear-gradient(135deg, {PRIMARY} 0%, {PINK} 100%);
-        color: #FFFFFF;
-        border: none;
-        border-radius: 12px;
-        font-weight: 700;
-        padding: 10px 0;
-    }}
-    div.stButton > button:hover {{
-        filter: brightness(1.05);
-        color: #FFFFFF;
-    }}
+    .hs-footer {{ color: {MUTED}; font-size: .85rem; text-align: center; margin-top: 2rem; }}
 
-    /* File uploader + inputs on white */
-    section[data-testid="stFileUploaderDropzone"] {{
-        background: {PAGE_BG};
-        border: 1px dashed {PRIMARY};
+    @media (max-width: 640px) {{
+        .block-container {{ padding-top: 3.5rem; }}
+        h1.hs-brand {{ font-size: 2.6rem !important; }}
+        .hs-letter {{ font-size: 4.2rem; width: 6.5rem; height: 6.5rem; }}
+        .hs-conf {{ font-size: 1.6rem; }}
     }}
     </style>
     """,
@@ -144,13 +117,121 @@ st.markdown(
 
 
 # ---------------------------------------------------------------------------
-# Model loading (cached)
+# Drawing pad (a small custom component that returns the sketch as a PNG)
 # ---------------------------------------------------------------------------
-@st.cache_resource(show_spinner="Loading recognition model...")
+PAD_HTML = """
+<div class="pad-wrap">
+  <canvas class="pad" width="280" height="280"></canvas>
+  <div class="pad-bar">
+    <span class="pad-hint">Draw one capital letter, large and centered</span>
+    <button class="pad-clear" type="button">Clear</button>
+  </div>
+</div>
+"""
+
+PAD_CSS = """
+.pad-wrap { width: 100%; max-width: 360px; margin: 0 auto; font-family: inherit; }
+.pad {
+  width: 100%; aspect-ratio: 1 / 1; display: block; touch-action: none; cursor: crosshair;
+  background: #FFFFFF; border: 1.5px dashed #CFCDC4; border-radius: 16px;
+}
+.pad-bar { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 8px; }
+.pad-hint { font-size: 13px; color: #6B6A75; }
+.pad-clear {
+  font: inherit; font-size: 14px; font-weight: 600; color: #4338CA; background: transparent;
+  border: 1px solid #C7C9F5; border-radius: 10px; padding: 6px 14px; cursor: pointer;
+}
+.pad-clear:hover { background: #EEF0FF; }
+"""
+
+PAD_JS = """
+export default function ({ parentElement, setStateValue }) {
+  const canvas = parentElement.querySelector(".pad");
+  const clear = parentElement.querySelector(".pad-clear");
+  const ctx = canvas.getContext("2d");
+  let drawing = false, dirty = false, last = null;
+
+  const reset = () => {
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  };
+  if (!canvas.dataset.ready) { reset(); canvas.dataset.ready = "1"; }
+
+  const point = (e) => {
+    const r = canvas.getBoundingClientRect();
+    return [(e.clientX - r.left) * canvas.width / r.width,
+            (e.clientY - r.top) * canvas.height / r.height];
+  };
+  const stroke = (a, b) => {
+    ctx.strokeStyle = "#1C1B22"; ctx.lineWidth = 20; ctx.lineCap = "round"; ctx.lineJoin = "round";
+    ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+  };
+  const down = (e) => {
+    e.preventDefault(); canvas.setPointerCapture(e.pointerId);
+    drawing = true; last = point(e); stroke(last, last); dirty = true;
+  };
+  const move = (e) => { if (!drawing) return; const p = point(e); stroke(last, p); last = p; };
+  const up = () => {
+    if (!drawing) return; drawing = false;
+    if (dirty) setStateValue("image", canvas.toDataURL("image/png"));
+  };
+  const wipe = () => { reset(); dirty = false; setStateValue("image", ""); };
+
+  canvas.addEventListener("pointerdown", down);
+  canvas.addEventListener("pointermove", move);
+  canvas.addEventListener("pointerup", up);
+  canvas.addEventListener("pointercancel", up);
+  clear.addEventListener("click", wipe);
+  return () => {
+    canvas.removeEventListener("pointerdown", down);
+    canvas.removeEventListener("pointermove", move);
+    canvas.removeEventListener("pointerup", up);
+    canvas.removeEventListener("pointercancel", up);
+    clear.removeEventListener("click", wipe);
+  };
+}
+"""
+
+try:
+    drawing_pad = st.components.v2.component(
+        "handscript_pad", html=PAD_HTML, css=PAD_CSS, js=PAD_JS
+    )
+except AttributeError:  # older Streamlit without custom components v2
+    drawing_pad = None
+    INPUT_MODES.pop("draw")
+
+
+def image_from_data_url(data_url):
+    """Decode a canvas PNG data URL into a PIL image (None if empty)."""
+    if not data_url or "," not in data_url:
+        return None
+    return Image.open(io.BytesIO(base64.b64decode(data_url.split(",", 1)[1])))
+
+
+# ---------------------------------------------------------------------------
+# Model & data loading (cached)
+# ---------------------------------------------------------------------------
+@st.cache_resource(show_spinner="Warming up the model...")
 def load_recognition_model():
-    """Load the trained Keras model once and cache it for the session."""
+    """Load the trained Keras model once and share it across sessions."""
     from tensorflow.keras.models import load_model
-    return load_model(MODEL_PATH)
+    return load_model(MODEL_PATH, compile=False)
+
+
+@st.cache_data
+def load_metrics():
+    """Read the training metrics saved by the notebook."""
+    try:
+        with open(METRICS_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def load_sample(letter):
+    """Return the sample image for a letter from sample_images/, if present."""
+    path = os.path.join(SAMPLE_DIR, f"{letter}.png")
+    return Image.open(path) if os.path.exists(path) else None
 
 
 # ---------------------------------------------------------------------------
@@ -161,234 +242,233 @@ def preprocess_image(pil_image):
 
     The training letters are framed MNIST-style: the glyph sits in roughly a
     20x20 box centered inside the 28x28 frame, with a margin around it. To make
-    uploads match that layout, we: convert to grayscale, put the strokes in
+    inputs match that layout, we: convert to grayscale, put the strokes in
     white on black, crop to the letter, scale its longest side to 20px (keeping
     the aspect ratio), and center it in a 28x28 frame. Returns the input tensor
-    of shape (1, 28, 28, 1) and the 28x28 array for display.
+    of shape (1, 28, 28, 1) and the 28x28 array for display, or (None, None)
+    when the image is blank.
     """
-    gray = pil_image.convert("L")
-    arr = np.array(gray, dtype="float32")
+    if pil_image.mode in ("RGBA", "LA", "P"):
+        pil_image = pil_image.convert("RGBA")
+        flat = Image.new("RGBA", pil_image.size, (255, 255, 255, 255))
+        pil_image = Image.alpha_composite(flat, pil_image)
+    arr = np.array(pil_image.convert("L"), dtype="float32")
 
-    # Training data is white strokes on a black background. If the uploaded
-    # image is dark strokes on a light background, invert it.
+    # Training data is white strokes on a black background. If the image is
+    # dark strokes on a light background, invert it.
     if arr.mean() > 127:
         arr = 255.0 - arr
 
-    # Find the letter and crop to its bounding box, then re-frame it like the
-    # training data (centered, ~20px tall/wide with a margin).
-    threshold = arr.max() * 0.25 if arr.max() > 0 else 0
+    if arr.max() < 30:  # nothing drawn / blank image
+        return None, None
+
+    threshold = arr.max() * 0.25
     coords = np.argwhere(arr > threshold)
-    if coords.size:
-        (y0, x0), (y1, x1) = coords.min(0), coords.max(0) + 1
-        crop = arr[y0:y1, x0:x1]
-        h, w = crop.shape
-        scale = 20.0 / max(h, w)
-        nh, nw = max(1, int(round(h * scale))), max(1, int(round(w * scale)))
-        glyph = np.array(
-            Image.fromarray(crop.astype("uint8")).resize((nw, nh), Image.LANCZOS),
-            dtype="float32",
-        )
-        canvas = np.zeros((28, 28), dtype="float32")
-        oy, ox = (28 - nh) // 2, (28 - nw) // 2
-        canvas[oy:oy + nh, ox:ox + nw] = glyph
-        arr = canvas
-    else:
-        arr = np.array(
-            Image.fromarray(arr.astype("uint8")).resize((28, 28), Image.LANCZOS),
-            dtype="float32",
-        )
+    (y0, x0), (y1, x1) = coords.min(0), coords.max(0) + 1
+    crop = arr[y0:y1, x0:x1]
+    h, w = crop.shape
+    scale = 20.0 / max(h, w)
+    nh, nw = max(1, int(round(h * scale))), max(1, int(round(w * scale)))
+    glyph = np.array(
+        Image.fromarray(crop.astype("uint8")).resize((nw, nh), Image.LANCZOS),
+        dtype="float32",
+    )
+    frame = np.zeros((28, 28), dtype="float32")
+    oy, ox = (28 - nh) // 2, (28 - nw) // 2
+    frame[oy:oy + nh, ox:ox + nw] = glyph
 
-    norm = arr / 255.0
-    tensor = norm.reshape(1, 28, 28, 1)
-    return tensor, arr
+    return (frame / 255.0).reshape(1, 28, 28, 1), frame
 
 
-def render_letter_image(letter):
-    """Render a clean glyph for a letter as a fallback sample (light on dark)."""
-    img = Image.new("L", (28, 28), color=0)
-    draw = ImageDraw.Draw(img)
-    try:
-        font = ImageFont.truetype("arial.ttf", 22)
-    except OSError:
-        font = ImageFont.load_default()
-    bbox = draw.textbbox((0, 0), letter, font=font)
-    w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-    draw.text(((28 - w) / 2 - bbox[0], (28 - h) / 2 - bbox[1]), letter, fill=255, font=font)
-    return img
-
-
-def load_sample_for_letter(letter):
-    """Return a PIL sample image for a letter: from sample_images/ if present,
-    otherwise a font-rendered fallback."""
-    path = os.path.join(SAMPLE_DIR, f"{letter}.png")
-    if os.path.exists(path):
-        return Image.open(path)
-    return render_letter_image(letter)
+def predict(pil_image):
+    """Return (probabilities, 28x28 frame) for an image, or (None, None)."""
+    tensor, frame = preprocess_image(pil_image)
+    if tensor is None:
+        return None, None
+    probs = load_recognition_model().predict(tensor, verbose=0)[0]
+    return probs, frame
 
 
 # ---------------------------------------------------------------------------
-# Sidebar: input controls
+# Rendering helpers
 # ---------------------------------------------------------------------------
-with st.sidebar:
-    st.markdown(f"<h1 style='color:{PRIMARY};margin-bottom:0;'>🖋️ HandScript AI</h1>", unsafe_allow_html=True)
-    st.markdown(f"<p style='color:{MUTED};margin-top:4px;'>Handwritten Character Recognition (A-Z)</p>", unsafe_allow_html=True)
-    st.divider()
-
-    mode = st.radio(
-        "Input mode",
-        ["📤 Upload image", "🔤 Type a letter"],
-        help="Upload your own handwriting or pick a sample letter from the test set.",
+def render_empty_state(mode):
+    hint = {
+        "draw": "Draw a letter on the pad to see what the model reads.",
+        "upload": "Upload a photo or scan of a single capital letter.",
+        "sample": "Pick a letter to test the model on a real sample.",
+    }[mode]
+    st.markdown(
+        f"<div class='hs-empty'><div class='hs-ghost'>Aa</div><p>{hint}</p></div>",
+        unsafe_allow_html=True,
     )
 
-    source_image = None
-    if mode == "📤 Upload image":
-        uploaded = st.file_uploader(
-            "Upload a letter image", type=["png", "jpg", "jpeg"]
+
+def render_prediction(probs, frame):
+    order = np.argsort(probs)[::-1]
+    top = int(order[0])
+    confidence = float(probs[top])
+    note = (
+        "Confident match"
+        if confidence >= LOW_CONFIDENCE
+        else "Not sure. Try writing it larger and clearer."
+    )
+    chips = "".join(
+        f"<span class='hs-chip'><b>{LETTERS[int(i)]}</b> {probs[int(i)] * 100:.1f}%</span>"
+        for i in order[1:4]
+    )
+    st.markdown(
+        f"""
+        <p class='hs-label'>Prediction</p>
+        <div class='hs-result'>
+            <div class='hs-letter'>{LETTERS[top]}</div>
+            <div>
+                <div class='hs-conf'>{confidence * 100:.1f}%</div>
+                <div class='hs-conf-note'>{note}</div>
+                <p class='hs-label' style='margin-top:1rem;'>Next closest</p>
+                <div class='hs-alt'>{chips}</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.progress(min(max(confidence, 0.0), 1.0))
+
+    st.markdown("<p class='hs-label' style='margin-top:1rem;'>What the model sees</p>", unsafe_allow_html=True)
+    seen = Image.fromarray(frame.astype("uint8")).resize((112, 112), Image.NEAREST)
+    st.image(seen, width=112)
+    st.caption("Your letter, cropped, centered, and shrunk to 28 x 28 pixels.")
+
+
+def render_distribution(probs):
+    df = pd.DataFrame({"Letter": LETTERS, "Confidence": probs * 100})
+    top_letter = LETTERS[int(np.argmax(probs))]
+    chart = (
+        alt.Chart(df)
+        .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
+        .encode(
+            x=alt.X("Letter:N", sort=LETTERS, title=None, axis=alt.Axis(labelAngle=0, labelOverlap=False, labelFontSize=11)),
+            y=alt.Y("Confidence:Q", title="Confidence (%)", scale=alt.Scale(domain=[0, 100])),
+            color=alt.condition(
+                alt.datum.Letter == top_letter, alt.value(INK), alt.value(INK_SOFT)
+            ),
+            tooltip=[alt.Tooltip("Letter:N"), alt.Tooltip("Confidence:Q", format=".2f")],
         )
-        if uploaded is not None:
-            try:
-                source_image = Image.open(uploaded)
-            except Exception:
-                st.warning("⚠️ Could not open that file. Please upload a valid PNG/JPG image.")
-    else:
-        chosen = st.selectbox("Pick a letter (sample from test set)", LETTERS)
-        source_image = load_sample_for_letter(chosen)
-        st.image(source_image.resize((120, 120)), caption=f"Sample: {chosen}")
-
-    st.divider()
-    predict = st.button("🚀 Predict", use_container_width=True, type="primary")
+        .properties(height=240)
+    )
+    st.altair_chart(chart, use_container_width=True)
 
 
 # ---------------------------------------------------------------------------
-# Header
+# Page
 # ---------------------------------------------------------------------------
 st.markdown(
-    f"<h1 style='margin-bottom:0;'>🖋️ <span style='color:{PRIMARY};'>HandScript</span> "
-    f"<span style='color:{TEAL};'>AI</span></h1>",
-    unsafe_allow_html=True,
-)
-st.markdown(
-    f"<p style='color:{MUTED};font-size:1.05rem;margin-top:4px;'>Deep-learning recognition of "
-    "handwritten capital letters (A-Z), powered by a convolutional neural network.</p>",
+    "<h1 class='hs-brand'>HandScript <span>AI</span></h1>"
+    "<p class='hs-tagline'>Write a capital letter and a neural network reads it back.</p>",
     unsafe_allow_html=True,
 )
 
-# Guard: model must exist
 if not os.path.exists(MODEL_PATH):
     st.error(
         f"Model not found at `{os.path.relpath(MODEL_PATH, ROOT_DIR)}`. "
-        "Train it first by running the notebook (`notebook/handwritten_character_recognition.ipynb`)."
+        "Train it first by running `notebook/handwritten_character_recognition.ipynb`."
     )
     st.stop()
 
-model = load_recognition_model()
+st.session_state.setdefault("pad_id", 0)
 
 
-def styled_axes(fig, ax):
-    """Apply the light chart theme to a matplotlib figure/axes."""
-    fig.patch.set_facecolor(CARD_BG)
-    ax.set_facecolor(CHART_BG)
-    for spine in ["top", "right"]:
-        ax.spines[spine].set_visible(False)
-    for spine in ["left", "bottom"]:
-        ax.spines[spine].set_color(BORDER)
-    ax.tick_params(colors=INK)
+def reset_pad():
+    """Give the drawing pad a fresh key so an old sketch is not reused."""
+    st.session_state.pad_id += 1
 
 
-def render_results(pil_image):
-    """Run the full prediction pipeline and render all four sections."""
-    try:
-        tensor, gray28 = preprocess_image(pil_image)
-    except Exception:
-        st.warning("⚠️ The image could not be processed. Try a different file.")
-        return
+left, right = st.columns([1.05, 1], gap="medium")
 
-    probs = model.predict(tensor, verbose=0)[0]
-    order = np.argsort(probs)[::-1]
-    top_idx = int(order[0])
-    pred_letter = LETTERS[top_idx]
-    confidence = float(probs[top_idx])
+with left:
+    with st.container(border=True):
+        mode = st.segmented_control(
+            "Input",
+            options=list(INPUT_MODES),
+            format_func=INPUT_MODES.get,
+            default=next(iter(INPUT_MODES)),
+            label_visibility="collapsed",
+            key="mode",
+            on_change=reset_pad,
+        ) or next(iter(INPUT_MODES))
 
-    # ---- Section 1: Prediction result ----
-    st.markdown("<h3 class='section-head'>Prediction Result</h3>", unsafe_allow_html=True)
-    c1, c2, c3 = st.columns([1, 1.3, 1.2])
-    with c1:
-        st.markdown("**Predicted letter**")
-        st.markdown(f"<div class='pred-badge'>{pred_letter}</div>", unsafe_allow_html=True)
-    with c2:
-        st.markdown("**Confidence**")
-        st.markdown(f"<h2 style='color:{GREEN};'>{confidence * 100:.2f}%</h2>", unsafe_allow_html=True)
-        st.progress(min(max(confidence, 0.0), 1.0))
-    with c3:
-        st.markdown("**Top 3 guesses**")
-        for rank, i in enumerate(order[:3]):
-            colour = GREEN if rank == 0 else INK
-            weight = "800" if rank == 0 else "600"
-            st.markdown(
-                f"<span style='color:{colour};font-size:1.15rem;font-weight:{weight};'>"
-                f"{rank + 1}. {LETTERS[int(i)]} &nbsp;{probs[int(i)] * 100:.2f}%</span>",
-                unsafe_allow_html=True,
+        source = None
+        if mode == "draw":
+            pad = drawing_pad(
+                key=f"pad_{st.session_state.pad_id}", on_image_change=lambda: None
             )
+            source = image_from_data_url(getattr(pad, "image", None))
+        elif mode == "upload":
+            uploaded = st.file_uploader(
+                "Upload a letter image",
+                type=["png", "jpg", "jpeg"],
+                label_visibility="collapsed",
+            )
+            if uploaded is not None:
+                try:
+                    source = Image.open(uploaded)
+                    st.image(source, width=200)
+                except Exception:
+                    st.warning("That file could not be opened. Please upload a PNG or JPG image.")
+        else:
+            letter = st.pills(
+                "Sample letter", LETTERS, default="A", key="sample_letter"
+            ) or "A"
+            source = load_sample(letter)
+            if source is not None:
+                st.image(source.resize((140, 140), Image.NEAREST), width=140)
+                st.caption(f"Sample '{letter}' from the test set.")
 
-    st.divider()
+with right:
+    with st.container(border=True):
+        probs = frame = None
+        if source is not None:
+            try:
+                probs, frame = predict(source)
+            except Exception:
+                st.warning("This image could not be processed. Try a different one.")
+        if probs is None:
+            render_empty_state(mode)
+        else:
+            render_prediction(probs, frame)
 
-    # ---- Section 2: Preprocessed image display ----
-    st.markdown("<h3 class='section-head'>Preprocessed Input</h3>", unsafe_allow_html=True)
-    p1, p2 = st.columns(2)
-    with p1:
-        st.markdown("**Grayscale, resized to 28x28**")
-        st.image(gray28.astype("uint8"), width=220, clamp=True)
-    with p2:
-        st.markdown("**Raw pixel grid (heatmap)**")
-        import matplotlib.pyplot as plt
-        fig, ax = plt.subplots(figsize=(3.2, 3.2))
-        fig.patch.set_facecolor(CARD_BG)
-        ax.imshow(gray28, cmap="viridis")
-        ax.axis("off")
-        st.pyplot(fig, use_container_width=False)
-        plt.close(fig)
-
-    st.divider()
-
-    # ---- Section 3: Confidence distribution chart ----
-    st.markdown("<h3 class='section-head'>Confidence Across All 26 Letters</h3>", unsafe_allow_html=True)
-    import matplotlib.pyplot as plt
-    fig, ax = plt.subplots(figsize=(11, 5))
-    styled_axes(fig, ax)
-    colours = [PRIMARY if i == top_idx else TEAL for i in range(NUM_CLASSES)]
-    ax.barh(LETTERS, probs * 100, color=colours)
-    ax.invert_yaxis()
-    ax.set_xlabel("Confidence (%)", color=INK)
-    ax.set_title(f"Predicted: {pred_letter}", color=INK, fontweight="bold")
-    st.pyplot(fig, use_container_width=True)
-    plt.close(fig)
-
-
-# ---------------------------------------------------------------------------
-# Main panel: run prediction or show prompt
-# ---------------------------------------------------------------------------
-if predict and source_image is not None:
-    render_results(source_image)
-elif predict and source_image is None:
-    st.warning("⚠️ Please upload an image or pick a letter first.")
-else:
-    st.info("👈 Choose an input mode in the sidebar, then press **Predict**.")
+if probs is not None:
+    st.markdown("<p class='hs-label' style='margin-top:1.5rem;'>Confidence for every letter</p>", unsafe_allow_html=True)
+    with st.container(border=True):
+        render_distribution(probs)
 
 # ---------------------------------------------------------------------------
-# Section 4: Model info cards (always visible at the bottom)
+# About the model
 # ---------------------------------------------------------------------------
-st.divider()
-st.markdown("<h3 class='section-head'>Model Information</h3>", unsafe_allow_html=True)
-m1, m2, m3, m4 = st.columns(4)
-cards = [
-    (m1, f"{TEST_ACCURACY * 100:.2f}%", "Test accuracy"),
-    (m2, f"{model.count_params():,}", "Parameters"),
-    (m3, f"{DATASET_SIZE:,}", "Dataset size"),
-    (m4, f"{NUM_CLASSES}", "Classes (A-Z)"),
+metrics = load_metrics()
+st.markdown("<p class='hs-label' style='margin-top:1.5rem;'>About the model</p>", unsafe_allow_html=True)
+stats = [
+    ("Test accuracy", f"{metrics.get('test_accuracy', 0.9891) * 100:.2f}%"),
+    ("Parameters", f"{metrics.get('parameters', 443002):,}"),
+    ("Training images", f"{DATASET_SIZE:,}"),
+    ("Classes", "26 (A-Z)"),
 ]
-for col, value, label in cards:
+for col, (label, value) in zip(st.columns(len(stats)), stats):
     with col:
-        st.markdown(
-            f"<div class='metric-card'><h2>{value}</h2><p>{label}</p></div>",
-            unsafe_allow_html=True,
-        )
+        with st.container(border=True):
+            st.metric(label, value)
+
+with st.expander("How it works"):
+    st.markdown(
+        """
+1. **Clean up.** The image is converted to grayscale and inverted so the letter is white on black, like the training data.
+2. **Frame.** The letter is cropped, scaled to fit a 20 x 20 box, and centered in a 28 x 28 frame.
+3. **Classify.** A 5-layer convolutional neural network, trained on the Kaggle A-Z Handwritten dataset, scores all 26 letters.
+4. **Report.** The highest score is the prediction; the others show what the model was also considering.
+        """
+    )
+
+st.markdown(
+    "<p class='hs-footer'>Built by Adossi Fred William for the CodeAlpha Machine Learning Internship</p>",
+    unsafe_allow_html=True,
+)

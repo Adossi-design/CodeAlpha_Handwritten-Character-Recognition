@@ -1,10 +1,14 @@
 [theme]
 base = "light"
-primaryColor = "#6C5CE7"
-backgroundColor = "#FFFFFF"
-secondaryBackgroundColor = "#F2F3FB"
-textColor = "#1F2335"
-font = "sans serif"
+primaryColor = "#4338CA"
+backgroundColor = "#FAFAF7"
+secondaryBackgroundColor = "#F1F0EA"
+textColor = "#1C1B22"
+borderColor = "#E3E2DC"
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap"
+baseRadius = "0.9rem"
+showWidgetBorder = true
+metricValueFontWeight = 800
 
 [browser]
 gatherUsageStats = false

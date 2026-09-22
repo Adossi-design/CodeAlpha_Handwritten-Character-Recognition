@@ -40,11 +40,12 @@ during training.
 - Saves the model, a label map, and a metrics file for the app
 
 **Web app (HandScript AI)**
-- Two input modes: upload an image, or pick a sample letter from A to Z
-- Shows the predicted letter, a confidence score, and the top three guesses
-- Displays the preprocessed 28x28 image and its pixel heatmap
+- Three input modes: draw a letter on a canvas, upload an image, or pick a sample
+- Predicts instantly, with no button to press
+- Shows the predicted letter, a confidence score, and the next closest guesses
+- Displays the 28x28 image the model actually sees
 - Plots the model's confidence across all 26 letters
-- Dark theme, wide layout, and model info cards
+- Clean, responsive layout that works on phones, tablets, and desktops
 
 ---
 
@@ -156,21 +157,21 @@ person, especially at 28x28 resolution where the small details are lost.
 
 ## 🖥️ The Web App (HandScript AI)
 
-Once the model is trained, the app gives it a friendly interface. The sidebar
-lets you choose how to feed it an image:
+Once the model is trained, the app gives it a friendly interface. Choose how to
+feed it a letter at the top of the input card:
 
-- **Upload image:** drop in a PNG or JPG of a handwritten letter. The app
-  converts it to grayscale, resizes it to 28x28, and inverts it if needed so it
-  matches the white-on-black style the model was trained on.
-- **Type a letter:** pick any letter A to Z and the app loads a matching sample.
+- **Draw:** write a capital letter with your mouse, finger, or stylus.
+- **Upload:** drop in a PNG or JPG of a handwritten letter. The app converts it
+  to grayscale, crops and centers the letter in a 28x28 frame, and inverts it if
+  needed so it matches the white-on-black style the model was trained on.
+- **Samples:** tap any letter A to Z to load a real sample from the test set.
 
-After you press **Predict**, the main panel shows four things:
+The prediction appears right away and shows:
 
-1. The predicted letter, the confidence score with a progress bar, and the top
-   three guesses.
-2. The preprocessed 28x28 image and its pixel heatmap.
+1. The predicted letter, its confidence score, and the next closest guesses.
+2. The 28x28 image the model actually sees.
 3. A bar chart of the model's confidence across all 26 letters.
-4. Model info cards: test accuracy, parameter count, dataset size, and number of
+4. Model facts: test accuracy, parameter count, dataset size, and number of
    classes.
 
 ---
